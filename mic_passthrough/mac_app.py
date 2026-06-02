@@ -41,9 +41,10 @@ class MicPassthroughApp(rumps.App):
 
         ip_items = []
         for iface, ip in self.local_ips:
-            check = "✓" if ip == self.selected_local_ip else "   "
-            title = f"{check} {iface} - {ip}"
-            ip_items.append(rumps.MenuItem(title, callback=self._make_local_selector(iface, ip)))
+            title = f"{iface} - {ip}"
+            item = rumps.MenuItem(title, callback=self._make_local_selector(iface, ip))
+            item.state = 1 if ip == self.selected_local_ip else 0
+            ip_items.append(item)
 
         self.menu = (
             [rumps.MenuItem("Not connected", callback=None), None,
@@ -63,13 +64,10 @@ class MicPassthroughApp(rumps.App):
     def _make_local_selector(self, iface, ip):
         def select(_):
             self.selected_local_ip = ip
-            # update checkmarks
             for n, a in self.local_ips:
-                check = "✓" if a == ip else "   "
-                old = f"{'✓' if a == self.selected_local_ip else '   '} {n} - {a}"
-                new = f"{check} {n} - {a}"
-                if old in self.menu:
-                    self.menu[old].title = new
+                title = f"{n} - {a}"
+                if title in self.menu:
+                    self.menu[title].state = 1 if a == ip else 0
             self.discovery.stop()
             self._start_discovery()
         return select
