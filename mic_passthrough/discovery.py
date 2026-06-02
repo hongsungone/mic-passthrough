@@ -1,7 +1,6 @@
 """
-Simple UDP broadcast discovery — no external libraries needed.
-PC broadcasts its IP every 2 seconds on port 9877.
-Mac listens and shows discovered PCs in the menu.
+Discovery: Mac broadcasts a ping, PC responds directly back.
+No Windows firewall rules needed — PC only receives and replies.
 """
 
 import socket
@@ -10,90 +9,98 @@ import time
 
 DISCOVERY_PORT = 9877
 BROADCAST_INTERVAL = 2
-DISCOVERY_TIMEOUT = 6  # remove PC if not seen for this many seconds
+DISCOVERY_TIMEOUT = 6
+
+PING_MSG = b"MIC-PASSTHROUGH-PING"
+PONG_PREFIX = "MIC-PASSTHROUGH-PONG|"
 
 
-class PCBroadcaster:
-    """PC side — broadcasts selected IP so Mac can find it."""
+class PCResponder:
+    """PC side — listens for Mac pings and responds with hostname + listening IP."""
 
     def __init__(self, get_ip_fn):
         self.get_ip_fn = get_ip_fn
         self.running = False
-        self.thread = None
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 
     def start(self):
         self.running = True
-        self.thread = threading.Thread(target=self._loop, daemon=True)
-        self.thread.start()
+        threading.Thread(target=self._loop, daemon=True).start()
 
     def stop(self):
         self.running = False
 
-    def _get_broadcast_addresses(self):
-        """Get broadcast address for every network interface."""
-        import psutil
-        broadcasts = []
-        for addrs in psutil.net_if_addrs().values():
-            for addr in addrs:
-                if addr.family == socket.AF_INET and addr.broadcast:
-                    broadcasts.append(addr.broadcast)
-        return broadcasts or ['255.255.255.255']
-
     def _loop(self):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(('', DISCOVERY_PORT))
+        sock.settimeout(1)
         hostname = socket.gethostname()
         while self.running:
-            ip = self.get_ip_fn()
-            msg = f"MIC-PASSTHROUGH|{hostname}|{ip}".encode()
-            for bcast in self._get_broadcast_addresses():
-                try:
-                    self.sock.sendto(msg, (bcast, DISCOVERY_PORT))
-                except Exception:
-                    pass
-            time.sleep(BROADCAST_INTERVAL)
+            try:
+                data, addr = sock.recvfrom(256)
+                if data == PING_MSG:
+                    ip = self.get_ip_fn()
+                    msg = f"{PONG_PREFIX}{hostname}|{ip}".encode()
+                    sock.sendto(msg, addr)
+            except socket.timeout:
+                pass
+            except Exception:
+                break
+        sock.close()
 
 
 class PCDiscovery:
-    """Mac side — listens for PC broadcasts and calls callback with (name, ip)."""
+    """Mac side — broadcasts pings and collects PC responses."""
 
     def __init__(self, on_update):
         self.on_update = on_update
         self.peers = {}  # ip -> (name, last_seen)
         self.running = False
-        self.sock = None
 
     def start(self):
         self.running = True
-        threading.Thread(target=self._listen, daemon=True).start()
-        threading.Thread(target=self._expire, daemon=True).start()
+        threading.Thread(target=self._ping_loop, daemon=True).start()
+        threading.Thread(target=self._expire_loop, daemon=True).start()
 
     def stop(self):
         self.running = False
-        if self.sock:
-            self.sock.close()
 
-    def _listen(self):
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-        self.sock.bind(('', DISCOVERY_PORT))
-        self.sock.settimeout(1)
+    def _ping_loop(self):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(('', DISCOVERY_PORT))
+        sock.settimeout(1)
+
         while self.running:
+            # send ping to broadcast
             try:
-                data, addr = self.sock.recvfrom(256)
-                msg = data.decode()
-                if msg.startswith("MIC-PASSTHROUGH|"):
-                    _, name, ip = msg.split('|')
-                    updated = ip not in self.peers
-                    self.peers[ip] = (name, time.time())
-                    if updated:
-                        self.on_update(dict(self.peers))
-            except socket.timeout:
-                pass
+                sock.sendto(PING_MSG, ('<broadcast>', DISCOVERY_PORT))
             except Exception:
-                break
+                pass
 
-    def _expire(self):
+            # collect responses for 1.5 seconds
+            deadline = time.time() + 1.5
+            while time.time() < deadline:
+                try:
+                    data, addr = sock.recvfrom(256)
+                    msg = data.decode()
+                    if msg.startswith(PONG_PREFIX):
+                        _, name, ip = msg.split('|')
+                        updated = ip not in self.peers
+                        self.peers[ip] = (name, time.time())
+                        if updated:
+                            self.on_update(dict(self.peers))
+                except socket.timeout:
+                    break
+                except Exception:
+                    pass
+
+            time.sleep(BROADCAST_INTERVAL)
+
+        sock.close()
+
+    def _expire_loop(self):
         while self.running:
             now = time.time()
             expired = [ip for ip, (_, ts) in self.peers.items()

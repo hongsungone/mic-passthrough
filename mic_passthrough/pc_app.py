@@ -13,7 +13,7 @@ import sounddevice as sd
 from PIL import Image, ImageDraw
 import pystray
 import psutil
-from mic_passthrough.discovery import PCBroadcaster
+from mic_passthrough.discovery import PCResponder
 
 PORT = 9876
 SAMPLE_RATE = 48000
@@ -57,7 +57,8 @@ class TrayApp:
         self.local_ips = get_local_ips()
         self.selected_ip = self.local_ips[0][1]  # default to first IP
         self.device_index, self.device_name, self.sample_rate = find_vbcable()
-        self.broadcaster = PCBroadcaster(lambda: self.selected_ip)
+        self.responder = PCResponder(lambda: self.selected_ip)
+        self.responder.start()  # always listening for pings
         self.icon = pystray.Icon(
             "MicPassthrough",
             make_icon("gray"),
@@ -130,7 +131,6 @@ class TrayApp:
         self.icon.icon = make_icon("lime")
         self.icon.title = f"Mic Passthrough — Listening on {self.selected_ip}"
         self.icon.update_menu()
-        self.broadcaster.start()
 
         def recv_loop():
             while self.receiving:
@@ -150,7 +150,6 @@ class TrayApp:
 
     def _stop(self):
         self.receiving = False
-        self.broadcaster.stop()
         if self.stream:
             self.stream.stop()
             self.stream.close()
