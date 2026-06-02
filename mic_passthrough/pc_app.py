@@ -32,9 +32,9 @@ def get_local_ips():
 
 def find_vbcable():
     for i, d in enumerate(sd.query_devices()):
-        if 'cable' in d['name'].lower() and d['max_input_channels'] > 0:
-            return i, d['name']
-    return None, None
+        if 'cable input' in d['name'].lower() and d['max_output_channels'] > 0:
+            return i, d['name'], int(d['default_samplerate'])
+    return None, None, 44100
 
 
 def make_icon(color):
@@ -55,7 +55,7 @@ class TrayApp:
         self.thread = None
         self.local_ips = get_local_ips()
         self.selected_ip = self.local_ips[0][1]  # default to first IP
-        self.device_index, self.device_name = find_vbcable()
+        self.device_index, self.device_name, self.sample_rate = find_vbcable()
         self.icon = pystray.Icon(
             "MicPassthrough",
             make_icon("gray"),
@@ -121,7 +121,7 @@ class TrayApp:
                 outdata[:, ch] = mono  # broadcast mono to all channels
 
         self.stream = sd.OutputStream(
-            samplerate=SAMPLE_RATE, channels=out_channels, dtype='float32',
+            samplerate=self.sample_rate, channels=out_channels, dtype='float32',
             blocksize=CHUNK, device=self.device_index, callback=audio_callback
         )
         self.stream.start()

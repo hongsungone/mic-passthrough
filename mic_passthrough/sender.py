@@ -3,7 +3,7 @@ import numpy as np
 import sounddevice as sd
 
 PORT = 9876
-SAMPLE_RATE = 48000
+SAMPLE_RATE = 44100
 CHANNELS = 1
 CHUNK = 480
 
