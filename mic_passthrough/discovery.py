@@ -16,11 +16,13 @@ PONG_PREFIX = "MIC-PASSTHROUGH-PONG|"
 
 
 class PCResponder:
-    """PC side — listens for Mac pings and responds with hostname + listening IP."""
+    """PC side — listens for Mac pings and responds with hostname + matching subnet IP."""
 
-    def __init__(self, get_ip_fn):
+    def __init__(self, get_ip_fn, on_ip_change=None):
         self.get_ip_fn = get_ip_fn
+        self.on_ip_change = on_ip_change  # called when best IP changes
         self.running = False
+        self.last_best_ip = None
 
     def start(self):
         self.running = True
@@ -55,6 +57,11 @@ class PCResponder:
                     ip = self._best_ip_for(requester_ip)
                     msg = f"{PONG_PREFIX}{hostname}|{ip}".encode()
                     sock.sendto(msg, addr)
+                    # notify tray to switch listening IP if changed
+                    if ip != self.last_best_ip:
+                        self.last_best_ip = ip
+                        if self.on_ip_change:
+                            self.on_ip_change(ip)
             except socket.timeout:
                 pass
             except Exception:
