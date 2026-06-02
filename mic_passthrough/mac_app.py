@@ -71,7 +71,6 @@ class MicPassthroughApp(rumps.App):
             rumps.MenuItem("Not connected", callback=None),
             None,
             rumps.MenuItem("Broadcast from:", callback=None),
-            *self._build_local_ip_items(),
             None,
             rumps.MenuItem("Discovered:", callback=None),
             rumps.MenuItem("  Scanning…", callback=None),
@@ -82,6 +81,12 @@ class MicPassthroughApp(rumps.App):
             None,
             rumps.MenuItem("Quit", callback=self.quit_app),
         ]
+
+        # insert IP items after "Broadcast from:" one by one
+        prev = "Broadcast from:"
+        for item in self._build_local_ip_items():
+            self.menu.insert_after(prev, item)
+            prev = item.title
 
         self._start_discovery()
 
