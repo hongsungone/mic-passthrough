@@ -31,15 +31,26 @@ class PCBroadcaster:
     def stop(self):
         self.running = False
 
+    def _get_broadcast_addresses(self):
+        """Get broadcast address for every network interface."""
+        import psutil
+        broadcasts = []
+        for addrs in psutil.net_if_addrs().values():
+            for addr in addrs:
+                if addr.family == socket.AF_INET and addr.broadcast:
+                    broadcasts.append(addr.broadcast)
+        return broadcasts or ['255.255.255.255']
+
     def _loop(self):
         hostname = socket.gethostname()
         while self.running:
             ip = self.get_ip_fn()
             msg = f"MIC-PASSTHROUGH|{hostname}|{ip}".encode()
-            try:
-                self.sock.sendto(msg, ('<broadcast>', DISCOVERY_PORT))
-            except Exception:
-                pass
+            for bcast in self._get_broadcast_addresses():
+                try:
+                    self.sock.sendto(msg, (bcast, DISCOVERY_PORT))
+                except Exception:
+                    pass
             time.sleep(BROADCAST_INTERVAL)
 
 
