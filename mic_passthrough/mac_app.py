@@ -39,32 +39,26 @@ class MicPassthroughApp(rumps.App):
         print("Local IPs found:", self.local_ips)
         self.selected_local_ip = self.local_ips[0][1] if self.local_ips else None
 
-        self.menu = [
-            rumps.MenuItem("Not connected", callback=None),
-            None,
-            rumps.MenuItem("Broadcast from:", callback=None),
-            None,
-            rumps.MenuItem("Discovered:", callback=None),
-            rumps.MenuItem("  Scanning…", callback=None),
-            None,
-            rumps.MenuItem("Connect", callback=self.connect),
-            rumps.MenuItem("Disconnect", callback=self.disconnect),
-            rumps.MenuItem("Quit", callback=self.quit_app),
-        ]
-
-        # insert IP items after "Broadcast from:" in correct order
-        for i, item in enumerate(reversed(self._build_local_ip_items())):
-            self.menu.insert_after("Broadcast from:", item)
-
-        self._start_discovery()
-
-    def _build_local_ip_items(self):
-        items = []
+        ip_items = []
         for iface, ip in self.local_ips:
             check = "✓" if ip == self.selected_local_ip else "   "
             title = f"{check} {iface} - {ip}"
-            items.append(rumps.MenuItem(title, callback=self._make_local_selector(iface, ip)))
-        return items
+            ip_items.append(rumps.MenuItem(title, callback=self._make_local_selector(iface, ip)))
+
+        self.menu = (
+            [rumps.MenuItem("Not connected", callback=None), None,
+             rumps.MenuItem("Broadcast from:", callback=None)]
+            + ip_items
+            + [None,
+               rumps.MenuItem("Discovered:", callback=None),
+               rumps.MenuItem("  Scanning…", callback=None),
+               None,
+               rumps.MenuItem("Connect", callback=self.connect),
+               rumps.MenuItem("Disconnect", callback=self.disconnect),
+               rumps.MenuItem("Quit", callback=self.quit_app)]
+        )
+
+        self._start_discovery()
 
     def _make_local_selector(self, iface, ip):
         def select(_):
