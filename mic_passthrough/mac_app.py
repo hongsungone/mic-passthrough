@@ -87,19 +87,13 @@ class MicPassthroughApp(rumps.App):
     def _build_local_ip_items(self):
         items = []
         for iface, ip in self.local_ips:
-            check = "✓" if ip == self.selected_local_ip else " "
-            title = f"{check} {iface} - {ip}"
+            title = f"{iface} - {ip}"
             items.append(rumps.MenuItem(title, callback=self._make_local_selector(iface, ip)))
         return items
 
     def _make_local_selector(self, iface, ip):
         def select(_):
             self.selected_local_ip = ip
-            for n, a in self.local_ips:
-                check = "✓" if a == ip else " "
-                for title in list(self.menu.keys()):
-                    if f"- {a}" in title:
-                        self.menu[title].title = f"{check} {n} - {a}"
             self.discovery.stop()
             self._start_discovery()
         return select
