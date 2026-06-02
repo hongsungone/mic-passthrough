@@ -124,20 +124,22 @@ class MicPassthroughApp(rumps.App):
     def _start(self):
         def do_start():
             self.menu["Not connected"].title = "Connecting…"
+            try:
+                def callback(indata, frames, t, status):
+                    if self.streaming and self.pc_ip:
+                        pcm = (indata[:, 0] * 32767).astype(np.int16)
+                        self.sock.sendto(pcm.tobytes(), (self.pc_ip, PORT))
 
-            def callback(indata, frames, t, status):
-                if self.streaming and self.pc_ip:
-                    pcm = (indata[:, 0] * 32767).astype(np.int16)
-                    self.sock.sendto(pcm.tobytes(), (self.pc_ip, PORT))
-
-            self.stream = sd.InputStream(
-                samplerate=SAMPLE_RATE, channels=CHANNELS, dtype='float32',
-                blocksize=CHUNK, device=None, callback=callback
-            )
-            self.stream.start()
-            self.streaming = True
-            self.title = "🎙●"
-            self.menu["Not connected"].title = f"Streaming → {self.pc_ip}"
+                self.stream = sd.InputStream(
+                    samplerate=SAMPLE_RATE, channels=CHANNELS, dtype='float32',
+                    blocksize=CHUNK, device=None, callback=callback
+                )
+                self.stream.start()
+                self.streaming = True
+                self.title = "🎙●"
+                self.menu["Not connected"].title = f"Streaming → {self.pc_ip}"
+            except Exception as e:
+                self.menu["Not connected"].title = f"Error: {e}"
 
         threading.Thread(target=do_start, daemon=True).start()
 
