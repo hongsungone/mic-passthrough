@@ -186,21 +186,17 @@ class MicPassthroughApp(rumps.App):
         return stream
 
     def _get_default_device_name(self):
-        """Query macOS for current default input device without touching PortAudio."""
+        """Query default input device in a subprocess so main PortAudio is untouched."""
         try:
-            import subprocess
+            import subprocess, sys
             result = subprocess.run(
-                ['system_profiler', 'SPAudioDataType', '-json'],
-                capture_output=True, text=True, timeout=3
+                [sys.executable, '-c',
+                 'import sounddevice as sd; print(sd.query_devices(kind="input")["name"])'],
+                capture_output=True, text=True, timeout=5
             )
-            import json
-            data = json.loads(result.stdout)
-            for item in data.get('SPAudioDataType', []):
-                if item.get('coreaudio_default_audio_input_device') == 'spaudio_yes':
-                    return item.get('_name', '')
+            return result.stdout.strip() or None
         except Exception:
-            pass
-        return None
+            return None
 
     def _watch_device(self):
         """Restart stream if the system default input device changes."""
