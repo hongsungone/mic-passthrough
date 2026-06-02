@@ -75,6 +75,7 @@ class MicPassthroughApp(rumps.App):
             rumps.MenuItem("Discovered:", callback=None),
             rumps.MenuItem("  Scanning…", callback=None),
             None,
+            rumps.MenuItem("Connect", callback=self.connect),
             rumps.MenuItem("Disconnect", callback=self.disconnect),
             rumps.MenuItem("Reconnect BT Device", callback=self.reconnect_bt_menu),
             None,
@@ -129,11 +130,14 @@ class MicPassthroughApp(rumps.App):
 
     def _make_pc_selector(self, ip):
         def select(_):
-            if self.streaming:
-                self._stop()
             self.pc_ip = ip
-            self._start()
+            self.menu["Not connected"].title = f"PC: {ip}"
         return select
+
+    @rumps.clicked("Connect")
+    def connect(self, _):
+        if self.pc_ip:
+            self._start()
 
     @rumps.clicked("Disconnect")
     def disconnect(self, _):
