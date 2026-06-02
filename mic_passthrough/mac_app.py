@@ -87,13 +87,21 @@ class MicPassthroughApp(rumps.App):
     def _build_local_ip_items(self):
         items = []
         for iface, ip in self.local_ips:
-            title = f"{iface} - {ip}"
+            check = "✓" if ip == self.selected_local_ip else "   "
+            title = f"{check} {iface} - {ip}"
             items.append(rumps.MenuItem(title, callback=self._make_local_selector(iface, ip)))
         return items
 
     def _make_local_selector(self, iface, ip):
         def select(_):
             self.selected_local_ip = ip
+            # update checkmarks
+            for n, a in self.local_ips:
+                check = "✓" if a == ip else "   "
+                old = f"{'✓' if a == self.selected_local_ip else '   '} {n} - {a}"
+                new = f"{check} {n} - {a}"
+                if old in self.menu:
+                    self.menu[old].title = new
             self.discovery.stop()
             self._start_discovery()
         return select
@@ -105,6 +113,9 @@ class MicPassthroughApp(rumps.App):
     def _on_discovery_update(self, peers):
         self.discovered = {ip: name for ip, (name, _) in peers.items()}
         self._rebuild_discovered_menu()
+        # auto-select first discovered PC if none selected
+        if self.discovered and not self.pc_ip:
+            self._on_discovery_update_set_ip(next(iter(self.discovered)))
 
     def _rebuild_discovered_menu(self):
         for key in list(self.menu.keys()):
@@ -119,14 +130,13 @@ class MicPassthroughApp(rumps.App):
                 del self.menu["  Scanning…"]
             for ip, name in self.discovered.items():
                 title = f"  {name} ({ip})"
-                item = rumps.MenuItem(title, callback=self._make_pc_selector(ip))
+                item = rumps.MenuItem(title, callback=None)  # not clickable
                 self.menu.insert_after("Discovered:", item)
 
-    def _make_pc_selector(self, ip):
-        def select(_):
+    def _on_discovery_update_set_ip(self, ip):
+        if not self.pc_ip:
             self.pc_ip = ip
             self.menu["Not connected"].title = f"PC: {ip}"
-        return select
 
     @rumps.clicked("Connect")
     def connect(self, _):
