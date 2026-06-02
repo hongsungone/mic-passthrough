@@ -18,15 +18,10 @@ CHUNK = 480
 
 
 def get_airpods_mac():
-    """Find MAC address of connected AirPods using blueutil."""
     try:
-        result = subprocess.run(
-            ['blueutil', '--connected'],
-            capture_output=True, text=True
-        )
+        result = subprocess.run(['blueutil', '--connected'], capture_output=True, text=True)
         for line in result.stdout.splitlines():
-            if 'airpods' in line.lower() or 'AirPods' in line:
-                # extract MAC address (format: address: xx-xx-xx-xx-xx-xx)
+            if 'airpods' in line.lower():
                 for part in line.split():
                     if '-' in part and len(part) == 17:
                         return part
@@ -36,7 +31,6 @@ def get_airpods_mac():
 
 
 def reconnect_airpods(mac):
-    """Disconnect and reconnect AirPods to avoid clicking."""
     subprocess.run(['blueutil', '--disconnect', mac], capture_output=True)
     time.sleep(1.5)
     subprocess.run(['blueutil', '--connect', mac], capture_output=True)
@@ -48,19 +42,8 @@ class MicPassthroughApp(rumps.App):
         super().__init__("🎙", quit_button=None)
         self.pc_ip = None
         self.streaming = False
+        self.stream = None
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-        # keep stream always open to avoid audio reconfiguration clicks
-        def callback(indata, frames, time, status):
-            if self.streaming and self.pc_ip:
-                pcm = (indata[:, 0] * 32767).astype(np.int16)
-                self.sock.sendto(pcm.tobytes(), (self.pc_ip, PORT))
-
-        self.stream = sd.InputStream(
-            samplerate=SAMPLE_RATE, channels=CHANNELS, dtype='float32',
-            blocksize=CHUNK, device=None, callback=callback
-        )
-        self.stream.start()
 
         self.menu = [
             rumps.MenuItem("Not connected", callback=None),
@@ -103,37 +86,50 @@ class MicPassthroughApp(rumps.App):
             mac = get_airpods_mac()
             if mac:
                 reconnect_airpods(mac)
-                self.menu["Reconnect AirPods"].title = "Reconnect AirPods"
-            else:
-                self.menu["Reconnect AirPods"].title = "Reconnect AirPods"
-                rumps.notification("Mic Passthrough", "", "AirPods not found. Is blueutil installed?")
+            self.menu["Reconnect AirPods"].title = "Reconnect AirPods"
         threading.Thread(target=do_reconnect, daemon=True).start()
 
     def _start(self):
-        # start streaming first (triggers profile switch + click),
-        # then reconnect AirPods so they come back clean
-        self.streaming = True
-        self.title = "🎙●"
-        self.menu["Connect"].title = "Disconnect"
-        self.menu["Not connected"].title = f"Streaming → {self.pc_ip}"
+        def do_start():
+            self.menu["Not connected"].title = "Connecting…"
 
-        def reconnect_after_switch():
-            time.sleep(1)  # wait for profile switch to complete
+            # open stream (triggers profile switch + click)
+            def callback(indata, frames, time, status):
+                if self.streaming and self.pc_ip:
+                    pcm = (indata[:, 0] * 32767).astype(np.int16)
+                    self.sock.sendto(pcm.tobytes(), (self.pc_ip, PORT))
+
+            self.stream = sd.InputStream(
+                samplerate=SAMPLE_RATE, channels=CHANNELS, dtype='float32',
+                blocksize=CHUNK, device=None, callback=callback
+            )
+            self.stream.start()
+
+            # wait for profile switch to settle then reconnect AirPods
+            time.sleep(1)
             mac = get_airpods_mac()
             if mac:
                 reconnect_airpods(mac)
-        threading.Thread(target=reconnect_after_switch, daemon=True).start()
+
+            self.streaming = True
+            self.title = "🎙●"
+            self.menu["Connect"].title = "Disconnect"
+            self.menu["Not connected"].title = f"Streaming → {self.pc_ip}"
+
+        threading.Thread(target=do_start, daemon=True).start()
 
     def _stop(self):
         self.streaming = False
+        if self.stream:
+            self.stream.stop()
+            self.stream.close()
+            self.stream = None
         self.title = "🎙"
         self.menu["Connect"].title = "Connect"
         self.menu["Not connected"].title = f"PC: {self.pc_ip}"
 
     def quit_app(self, _):
         self._stop()
-        self.stream.stop()
-        self.stream.close()
         rumps.quit_application()
 
 
