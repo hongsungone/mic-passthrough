@@ -185,25 +185,40 @@ class MicPassthroughApp(rumps.App):
         stream.start()
         return stream
 
-    def _get_default_device_name(self):
-        """Query default input device in a subprocess so main PortAudio is untouched."""
+    def _get_default_input_device_id(self):
+        """Query CoreAudio directly for default input device ID — no subprocess, no PortAudio."""
         try:
-            import subprocess, sys
-            result = subprocess.run(
-                [sys.executable, '-c',
-                 'import sounddevice as sd; print(sd.query_devices(kind="input")["name"])'],
-                capture_output=True, text=True, timeout=5
+            import ctypes, ctypes.util
+
+            class AudioObjectPropertyAddress(ctypes.Structure):
+                _fields_ = [('mSelector', ctypes.c_uint32),
+                             ('mScope',    ctypes.c_uint32),
+                             ('mElement',  ctypes.c_uint32)]
+
+            ca = ctypes.CDLL(ctypes.util.find_library('CoreAudio'))
+            addr = AudioObjectPropertyAddress(
+                mSelector=0x64496e20,  # 'dIn ' kAudioHardwarePropertyDefaultInputDevice
+                mScope=0x676c6f62,     # 'glob' kAudioObjectPropertyScopeGlobal
+                mElement=0,
             )
-            return result.stdout.strip() or None
+            device_id = ctypes.c_uint32(0)
+            size = ctypes.c_uint32(ctypes.sizeof(device_id))
+            ret = ca.AudioObjectGetPropertyData(
+                ctypes.c_uint32(1),  # kAudioObjectSystemObject
+                ctypes.byref(addr),
+                ctypes.c_uint32(0), None,
+                ctypes.byref(size), ctypes.byref(device_id)
+            )
+            return device_id.value if ret == 0 else None
         except Exception:
             return None
 
     def _watch_device(self):
         """Restart stream if the system default input device changes."""
-        current_device = self._get_default_device_name()
+        current_device = self._get_default_input_device_id()
         while self.streaming:
             time.sleep(2)
-            new_device = self._get_default_device_name()
+            new_device = self._get_default_input_device_id()
             if new_device and new_device != current_device:
                 current_device = new_device
                 if self.stream:
