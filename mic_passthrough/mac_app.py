@@ -5,12 +5,15 @@ Requires: pip install rumps psutil
 
 import socket
 import threading
+import time
 import rumps
 import numpy as np
 import sounddevice as sd
 from mic_passthrough.discovery import PCDiscovery
 
 PORT = 9876
+HEARTBEAT_PORT = 9878
+HEARTBEAT_TIMEOUT = 3
 SAMPLE_RATE = 44100
 CHANNELS = 1
 CHUNK = 480
@@ -34,6 +37,7 @@ class MicPassthroughApp(rumps.App):
         self.streaming = False
         self.stream = None
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.last_heartbeat = 0
         self.discovered = {}
         self.local_ips = get_local_ips()
         # prefer en0 (WiFi) as default
@@ -63,6 +67,34 @@ class MicPassthroughApp(rumps.App):
         )
 
         self._start_discovery()
+        self._start_heartbeat_listener()
+
+    def _start_heartbeat_listener(self):
+        hb_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        hb_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        hb_sock.bind(('', HEARTBEAT_PORT))
+        hb_sock.settimeout(1)
+
+        def listen():
+            while True:
+                try:
+                    data, _ = hb_sock.recvfrom(64)
+                    if data == b'HEARTBEAT':
+                        self.last_heartbeat = time.time()
+                except socket.timeout:
+                    pass
+                except Exception:
+                    break
+
+        def watch():
+            while True:
+                time.sleep(1)
+                if self.streaming and time.time() - self.last_heartbeat > HEARTBEAT_TIMEOUT:
+                    self._stop()
+                    self.menu["Not connected"].title = "PC stopped listening"
+
+        threading.Thread(target=listen, daemon=True).start()
+        threading.Thread(target=watch, daemon=True).start()
 
     def _make_local_selector(self, iface, ip):
         def select(_):

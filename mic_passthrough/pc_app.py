@@ -6,6 +6,7 @@ Requires: VB-Cable installed (https://vb-audio.com/Cable/)
 
 import socket
 import threading
+import time
 import tkinter as tk
 from tkinter import messagebox
 import numpy as np
@@ -16,6 +17,7 @@ import psutil
 from mic_passthrough.discovery import PCResponder
 
 PORT = 9876
+HEARTBEAT_PORT = 9878
 SAMPLE_RATE = 48000
 CHANNELS = 1
 CHUNK = 480
@@ -135,18 +137,32 @@ class TrayApp:
         def recv_loop():
             while self.receiving:
                 try:
-                    data, _ = self.sock.recvfrom(CHUNK * 2)
+                    data, addr = self.sock.recvfrom(CHUNK * 2)
                     pcm = np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32767
                     self.buf.append(pcm)
                     while len(self.buf) > BUFFER_MAX:
                         self.buf.pop(0)
+                    self.mac_ip = addr[0]
                 except BlockingIOError:
                     pass
                 except Exception:
                     break
 
+        def heartbeat_loop():
+            hb_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            while self.receiving:
+                try:
+                    if hasattr(self, 'mac_ip'):
+                        hb_sock.sendto(b'HEARTBEAT', (self.mac_ip, HEARTBEAT_PORT))
+                except Exception:
+                    pass
+                time.sleep(1)
+            hb_sock.close()
+
+        self.mac_ip = None
         self.thread = threading.Thread(target=recv_loop, daemon=True)
         self.thread.start()
+        threading.Thread(target=heartbeat_loop, daemon=True).start()
 
     def _stop(self):
         self.receiving = False
