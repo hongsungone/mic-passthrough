@@ -70,12 +70,8 @@ class TrayApp:
         items = [pystray.MenuItem("Listen on:", None, enabled=False)]
 
         for name, ip in self.local_ips:
-            label = f"  {'✓' if ip == self.selected_ip else '  '} {name}: {ip}"
-            items.append(pystray.MenuItem(
-                label,
-                self._make_ip_selector(ip),
-                enabled=not self.receiving,
-            ))
+            label = f"  {'✓' if ip == self.selected_ip else '   '} {name}: {ip}"
+            items.append(pystray.MenuItem(label, None, enabled=False))
 
         items += [
             pystray.Menu.SEPARATOR,
@@ -102,12 +98,6 @@ class TrayApp:
         if self.receiving:
             self._stop()
             self._start()
-
-    def _make_ip_selector(self, ip):
-        def select(icon, item):
-            self.selected_ip = ip
-            self.icon.update_menu()
-        return select
 
     def toggle(self, icon, item):
         if self.receiving:
