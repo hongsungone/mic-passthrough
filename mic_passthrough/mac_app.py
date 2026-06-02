@@ -36,7 +36,6 @@ class MicPassthroughApp(rumps.App):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.discovered = {}
         self.local_ips = get_local_ips()
-        print("Local IPs found:", self.local_ips)
         # prefer en0 (WiFi) as default
         self.selected_local_ip = next(
             (ip for iface, ip in self.local_ips if iface == 'en0'),

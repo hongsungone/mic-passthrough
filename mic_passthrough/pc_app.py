@@ -57,7 +57,7 @@ class TrayApp:
         self.local_ips = get_local_ips()
         self.selected_ip = self.local_ips[0][1]  # default to first IP
         self.device_index, self.device_name, self.sample_rate = find_vbcable()
-        self.responder = PCResponder(lambda: self.selected_ip)
+        self.responder = PCResponder(lambda: self.selected_ip, on_ip_change=self._on_ip_change)
         self.responder.start()  # always listening for pings
         self.icon = pystray.Icon(
             "MicPassthrough",
@@ -92,6 +92,16 @@ class TrayApp:
             pystray.MenuItem("Quit", self.quit),
         ]
         return items
+
+    def _on_ip_change(self, ip):
+        """Called by PCResponder when the best subnet IP changes — auto-switch listener."""
+        if ip == self.selected_ip:
+            return
+        self.selected_ip = ip
+        self.icon.update_menu()
+        if self.receiving:
+            self._stop()
+            self._start()
 
     def _make_ip_selector(self, ip):
         def select(icon, item):
