@@ -38,6 +38,7 @@ class MicPassthroughApp(rumps.App):
         self.stream = None
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.last_heartbeat = 0
+        self.gain = 1.0
         self.discovered = {}
         self.local_ips = get_local_ips()
         # prefer en0 (WiFi) as default
@@ -53,10 +54,19 @@ class MicPassthroughApp(rumps.App):
             item.state = 1 if ip == self.selected_local_ip else 0
             ip_items.append(item)
 
+        gain_items = []
+        for label, val in [("1x (normal)", 1.0), ("1.5x", 1.5), ("2x", 2.0), ("3x", 3.0)]:
+            item = rumps.MenuItem(label, callback=self._make_gain_selector(val))
+            item.state = 1 if val == self.gain else 0
+            gain_items.append(item)
+
         self.menu = (
             [rumps.MenuItem("Not connected", callback=None), None,
              rumps.MenuItem("Broadcast from:", callback=None)]
             + ip_items
+            + [None,
+               rumps.MenuItem("Mic gain:", callback=None)]
+            + gain_items
             + [None,
                rumps.MenuItem("Discovered:", callback=None),
                rumps.MenuItem("  Scanning…", callback=None),
@@ -95,6 +105,14 @@ class MicPassthroughApp(rumps.App):
 
         threading.Thread(target=listen, daemon=True).start()
         threading.Thread(target=watch, daemon=True).start()
+
+    def _make_gain_selector(self, val):
+        def select(_):
+            self.gain = val
+            for label, v in [("1x (normal)", 1.0), ("1.5x", 1.5), ("2x", 2.0), ("3x", 3.0)]:
+                if label in self.menu:
+                    self.menu[label].state = 1 if v == val else 0
+        return select
 
     def _make_local_selector(self, iface, ip):
         def select(_):
@@ -156,7 +174,8 @@ class MicPassthroughApp(rumps.App):
     def _open_stream(self):
         def callback(indata, frames, t, status):
             if self.streaming and self.pc_ip:
-                pcm = (indata[:, 0] * 32767).astype(np.int16)
+                amplified = np.clip(indata[:, 0] * self.gain, -1.0, 1.0)
+                pcm = (amplified * 32767).astype(np.int16)
                 self.sock.sendto(pcm.tobytes(), (self.pc_ip, PORT))
 
         stream = sd.InputStream(
