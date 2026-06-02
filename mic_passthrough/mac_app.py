@@ -110,17 +110,19 @@ class MicPassthroughApp(rumps.App):
         threading.Thread(target=do_reconnect, daemon=True).start()
 
     def _start(self):
-        # reconnect AirPods in background to avoid clicking
-        def start_with_reconnect():
+        # start streaming first (triggers profile switch + click),
+        # then reconnect AirPods so they come back clean
+        self.streaming = True
+        self.title = "🎙●"
+        self.menu["Connect"].title = "Disconnect"
+        self.menu["Not connected"].title = f"Streaming → {self.pc_ip}"
+
+        def reconnect_after_switch():
+            time.sleep(1)  # wait for profile switch to complete
             mac = get_airpods_mac()
             if mac:
                 reconnect_airpods(mac)
-            self.streaming = True
-            self.title = "🎙●"
-            self.menu["Connect"].title = "Disconnect"
-            self.menu["Not connected"].title = f"Streaming → {self.pc_ip}"
-        threading.Thread(target=start_with_reconnect, daemon=True).start()
-        self.menu["Not connected"].title = "Reconnecting AirPods…"
+        threading.Thread(target=reconnect_after_switch, daemon=True).start()
 
     def _stop(self):
         self.streaming = False
