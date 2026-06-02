@@ -37,7 +37,11 @@ class MicPassthroughApp(rumps.App):
         self.discovered = {}
         self.local_ips = get_local_ips()
         print("Local IPs found:", self.local_ips)
-        self.selected_local_ip = self.local_ips[0][1] if self.local_ips else None
+        # prefer en0 (WiFi) as default
+        self.selected_local_ip = next(
+            (ip for iface, ip in self.local_ips if iface == 'en0'),
+            self.local_ips[0][1] if self.local_ips else None
+        )
 
         ip_items = []
         for iface, ip in self.local_ips:
