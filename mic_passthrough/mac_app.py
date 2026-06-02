@@ -72,6 +72,11 @@ class MicPassthroughApp(rumps.App):
                 title = f"{n} - {a}"
                 if title in self.menu:
                     self.menu[title].state = 1 if a == ip else 0
+            # reset pc_ip so it picks up the PC on the new subnet
+            self.pc_ip = None
+            self.menu["Not connected"].title = "Not connected"
+            self.discovered = {}
+            self._rebuild_discovered_menu()
             self.discovery.stop()
             self._start_discovery()
         return select
