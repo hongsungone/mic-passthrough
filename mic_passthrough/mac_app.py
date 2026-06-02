@@ -3,7 +3,6 @@ Mac menu bar app — click the mic icon to connect/disconnect.
 Requires: pip install rumps
 """
 
-import threading
 import socket
 import rumps
 import numpy as np
@@ -15,21 +14,58 @@ CHANNELS = 1
 CHUNK = 480
 
 
+def get_input_devices():
+    devices = []
+    for i, d in enumerate(sd.query_devices()):
+        if d['max_input_channels'] > 0:
+            devices.append((i, d['name']))
+    return devices
+
+
 class MicPassthroughApp(rumps.App):
     def __init__(self):
         super().__init__("🎙", quit_button=None)
+        self.pc_ip = None
+        self.streaming = False
+        self.stream = None
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.input_devices = get_input_devices()
+        self.selected_device_index = None  # None = system default
+
         self.menu = [
             rumps.MenuItem("Not connected", callback=None),
-            None,  # separator
+            None,
+            rumps.MenuItem("Microphone:", callback=None),
+            *self._build_mic_menu_items(),
+            None,
             rumps.MenuItem("Set PC IP Address…", callback=self.set_ip),
             rumps.MenuItem("Connect", callback=self.toggle_connect),
             None,
             rumps.MenuItem("Quit", callback=self.quit_app),
         ]
-        self.pc_ip = None
-        self.streaming = False
-        self.stream = None
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+    def _build_mic_menu_items(self):
+        items = []
+        for idx, name in self.input_devices:
+            short = name[:40]
+            item = rumps.MenuItem(f"  {short}", callback=self._make_mic_selector(idx, name))
+            items.append(item)
+        return items
+
+    def _make_mic_selector(self, idx, name):
+        def select(_):
+            self.selected_device_index = idx
+            # update checkmarks
+            for i, (d_idx, d_name) in enumerate(self.input_devices):
+                short = d_name[:40]
+                label = f"  {short}"
+                check = "✓" if d_idx == idx else " "
+                self.menu[label].title = f"{check} {short}"
+            # restart stream if active
+            if self.streaming:
+                self._stop()
+                self._start()
+        return select
 
     @rumps.clicked("Set PC IP Address…")
     def set_ip(self, _):
@@ -62,7 +98,8 @@ class MicPassthroughApp(rumps.App):
 
         self.stream = sd.InputStream(
             samplerate=SAMPLE_RATE, channels=CHANNELS, dtype='float32',
-            blocksize=CHUNK, callback=callback
+            blocksize=CHUNK, device=self.selected_device_index,
+            callback=callback
         )
         self.stream.start()
         self.streaming = True
