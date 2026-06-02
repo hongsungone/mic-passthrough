@@ -4,9 +4,7 @@ Requires: pip install rumps psutil
 """
 
 import socket
-import subprocess
 import threading
-import time
 import rumps
 import numpy as np
 import sounddevice as sd
@@ -27,32 +25,6 @@ def get_local_ips():
                 ips.append((name, addr.address))
     return ips
 
-
-def get_active_bt_audio_mac():
-    try:
-        default_input = sd.query_devices(kind='input')['name']
-        result = subprocess.run(['blueutil', '--paired'], capture_output=True, text=True)
-        for line in result.stdout.splitlines():
-            if 'connected' not in line:
-                continue
-            name_match = None
-            if 'name:' in line:
-                name_match = line.split('name:')[-1].strip().strip('"').split('"')[0]
-            if name_match and name_match.lower() in default_input.lower():
-                for part in line.split(','):
-                    part = part.strip()
-                    if part.startswith('address:'):
-                        return part.replace('address:', '').strip(), name_match
-    except Exception:
-        pass
-    return None, None
-
-
-def reconnect_bt_device(mac):
-    subprocess.run(['blueutil', '--disconnect', mac], capture_output=True)
-    time.sleep(3)
-    subprocess.run(['blueutil', '--connect', mac], capture_output=True)
-    time.sleep(3)
 
 
 class MicPassthroughApp(rumps.App):
@@ -77,8 +49,6 @@ class MicPassthroughApp(rumps.App):
             None,
             rumps.MenuItem("Connect", callback=self.connect),
             rumps.MenuItem("Disconnect", callback=self.disconnect),
-            rumps.MenuItem("Reconnect BT Device", callback=self.reconnect_bt_menu),
-            None,
             rumps.MenuItem("Quit", callback=self.quit_app),
         ]
 
@@ -153,16 +123,6 @@ class MicPassthroughApp(rumps.App):
     def disconnect(self, _):
         self._stop()
 
-    @rumps.clicked("Reconnect BT Device")
-    def reconnect_bt_menu(self, _):
-        def do_reconnect():
-            self.menu["Reconnect BT Device"].title = "Reconnecting…"
-            mac, name = get_active_bt_audio_mac()
-            if mac:
-                reconnect_bt_device(mac)
-            self.menu["Reconnect BT Device"].title = "Reconnect BT Device"
-        threading.Thread(target=do_reconnect, daemon=True).start()
-
     def _start(self):
         def do_start():
             self.menu["Not connected"].title = "Connecting…"
@@ -177,12 +137,6 @@ class MicPassthroughApp(rumps.App):
                 blocksize=CHUNK, device=None, callback=callback
             )
             self.stream.start()
-
-            time.sleep(1)
-            mac, name = get_active_bt_audio_mac()
-            if mac:
-                reconnect_bt_device(mac)
-
             self.streaming = True
             self.title = "🎙●"
             self.menu["Not connected"].title = f"Streaming → {self.pc_ip}"
