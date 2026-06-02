@@ -153,23 +153,53 @@ class MicPassthroughApp(rumps.App):
     def disconnect(self, _):
         self._stop()
 
+    def _open_stream(self):
+        def callback(indata, frames, t, status):
+            if self.streaming and self.pc_ip:
+                pcm = (indata[:, 0] * 32767).astype(np.int16)
+                self.sock.sendto(pcm.tobytes(), (self.pc_ip, PORT))
+
+        stream = sd.InputStream(
+            samplerate=SAMPLE_RATE, channels=CHANNELS, dtype='float32',
+            blocksize=CHUNK, device=None, callback=callback
+        )
+        stream.start()
+        return stream
+
+    def _watch_device(self):
+        """Restart stream if the system default input device changes."""
+        def get_default():
+            try:
+                return sd.query_devices(sd.default.device[0])['name']
+            except Exception:
+                return None
+
+        current_device = get_default()
+        while self.streaming:
+            time.sleep(2)
+            new_device = get_default()
+            if new_device and new_device != current_device:
+                current_device = new_device
+                if self.stream:
+                    try:
+                        self.stream.stop()
+                        self.stream.close()
+                    except Exception:
+                        pass
+                try:
+                    self.stream = self._open_stream()
+                except Exception:
+                    pass
+
     def _start(self):
         def do_start():
             self.menu["Not connected"].title = "Connecting…"
             try:
-                def callback(indata, frames, t, status):
-                    if self.streaming and self.pc_ip:
-                        pcm = (indata[:, 0] * 32767).astype(np.int16)
-                        self.sock.sendto(pcm.tobytes(), (self.pc_ip, PORT))
-
-                self.stream = sd.InputStream(
-                    samplerate=SAMPLE_RATE, channels=CHANNELS, dtype='float32',
-                    blocksize=CHUNK, device=None, callback=callback
-                )
-                self.stream.start()
+                self.stream = self._open_stream()
                 self.streaming = True
                 self.title = "🎙●"
                 self.menu["Not connected"].title = f"Streaming → {self.pc_ip}"
+                threading.Thread(target=self._watch_device, daemon=True).start()
             except Exception as e:
                 self.menu["Not connected"].title = f"Error: {e}"
 
