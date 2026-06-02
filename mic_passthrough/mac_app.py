@@ -52,11 +52,9 @@ class MicPassthroughApp(rumps.App):
             rumps.MenuItem("Quit", callback=self.quit_app),
         ]
 
-        # insert IP items after "Broadcast from:" one by one
-        prev = "Broadcast from:"
-        for item in self._build_local_ip_items():
-            self.menu.insert_after(prev, item)
-            prev = item.title
+        # insert IP items after "Broadcast from:" in correct order
+        for i, item in enumerate(reversed(self._build_local_ip_items())):
+            self.menu.insert_after("Broadcast from:", item)
 
         self._start_discovery()
 
