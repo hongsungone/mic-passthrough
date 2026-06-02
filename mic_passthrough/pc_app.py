@@ -112,11 +112,16 @@ class TrayApp:
         self.sock.setblocking(False)
         self.buf = []
 
+        # use device's max output channels (VB-Cable is stereo)
+        out_channels = sd.query_devices(self.device_index)['max_output_channels']
+
         def audio_callback(outdata, frames, time, status):
-            outdata[:, 0] = self.buf.pop(0) if self.buf else np.zeros(CHUNK, dtype=np.float32)
+            mono = self.buf.pop(0) if self.buf else np.zeros(CHUNK, dtype=np.float32)
+            for ch in range(out_channels):
+                outdata[:, ch] = mono  # broadcast mono to all channels
 
         self.stream = sd.OutputStream(
-            samplerate=SAMPLE_RATE, channels=CHANNELS, dtype='float32',
+            samplerate=SAMPLE_RATE, channels=out_channels, dtype='float32',
             blocksize=CHUNK, device=self.device_index, callback=audio_callback
         )
         self.stream.start()
