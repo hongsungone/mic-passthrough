@@ -152,21 +152,22 @@ class TrayApp:
 
     def _advertise_mdns(self):
         hostname = socket.gethostname()
-        for iface_name, ip in self.local_ips:
-            try:
-                label = f"{hostname} - {iface_name}"
-                service_name = f"{label}.{MDNS_TYPE}"
-                info = ServiceInfo(
-                    MDNS_TYPE,
-                    service_name,
-                    addresses=[socket.inet_aton(ip)],
-                    port=PORT,
-                    properties={b'label': label.encode()},
-                )
-                self.zeroconf.register_service(info)
-                self.mdns_services.append(info)
-            except Exception:
-                pass
+        # only advertise the selected IP
+        iface_name = next((n for n, ip in self.local_ips if ip == self.selected_ip), "PC")
+        try:
+            label = f"{hostname} - {iface_name}"
+            service_name = f"{label}.{MDNS_TYPE}"
+            info = ServiceInfo(
+                MDNS_TYPE,
+                service_name,
+                addresses=[socket.inet_aton(self.selected_ip)],
+                port=PORT,
+                properties={b'label': label.encode()},
+            )
+            self.zeroconf.register_service(info)
+            self.mdns_services.append(info)
+        except Exception:
+            pass
 
     def _unadvertise_mdns(self):
         for info in self.mdns_services:
