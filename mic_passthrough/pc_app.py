@@ -13,13 +13,14 @@ import sounddevice as sd
 from PIL import Image, ImageDraw
 import pystray
 import psutil
+from zeroconf import Zeroconf, ServiceInfo
 
 PORT = 9876
 SAMPLE_RATE = 48000
 CHANNELS = 1
 CHUNK = 480
 BUFFER_MAX = 6
-BUFFER_PREBUFFER = 3  # wait for this many packets before starting playback
+MDNS_TYPE = "_mic-passthrough._udp.local."
 
 
 def get_local_ips():
@@ -57,6 +58,8 @@ class TrayApp:
         self.local_ips = get_local_ips()
         self.selected_ip = self.local_ips[0][1]  # default to first IP
         self.device_index, self.device_name, self.sample_rate = find_vbcable()
+        self.zeroconf = Zeroconf()
+        self.mdns_services = []
         self.icon = pystray.Icon(
             "MicPassthrough",
             make_icon("gray"),
@@ -129,6 +132,7 @@ class TrayApp:
         self.icon.icon = make_icon("lime")
         self.icon.title = f"Mic Passthrough — Listening on {self.selected_ip}"
         self.icon.update_menu()
+        self._advertise_mdns()
 
         def recv_loop():
             while self.receiving:
@@ -146,8 +150,35 @@ class TrayApp:
         self.thread = threading.Thread(target=recv_loop, daemon=True)
         self.thread.start()
 
+    def _advertise_mdns(self):
+        hostname = socket.gethostname()
+        for iface_name, ip in self.local_ips:
+            try:
+                label = f"{hostname} - {iface_name}"
+                service_name = f"{label}.{MDNS_TYPE}"
+                info = ServiceInfo(
+                    MDNS_TYPE,
+                    service_name,
+                    addresses=[socket.inet_aton(ip)],
+                    port=PORT,
+                    properties={b'label': label.encode()},
+                )
+                self.zeroconf.register_service(info)
+                self.mdns_services.append(info)
+            except Exception:
+                pass
+
+    def _unadvertise_mdns(self):
+        for info in self.mdns_services:
+            try:
+                self.zeroconf.unregister_service(info)
+            except Exception:
+                pass
+        self.mdns_services.clear()
+
     def _stop(self):
         self.receiving = False
+        self._unadvertise_mdns()
         if self.stream:
             self.stream.stop()
             self.stream.close()
