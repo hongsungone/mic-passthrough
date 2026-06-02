@@ -185,18 +185,20 @@ class MicPassthroughApp(rumps.App):
         stream.start()
         return stream
 
+    def _get_default_device_name(self):
+        try:
+            sd._terminate()
+            sd._initialize()
+            return sd.query_devices(kind='input')['name']
+        except Exception:
+            return None
+
     def _watch_device(self):
         """Restart stream if the system default input device changes."""
-        def get_default():
-            try:
-                return sd.query_devices(sd.default.device[0])['name']
-            except Exception:
-                return None
-
-        current_device = get_default()
+        current_device = self._get_default_device_name()
         while self.streaming:
             time.sleep(2)
-            new_device = get_default()
+            new_device = self._get_default_device_name()
             if new_device and new_device != current_device:
                 current_device = new_device
                 if self.stream:
