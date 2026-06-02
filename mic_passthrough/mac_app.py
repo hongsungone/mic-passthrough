@@ -1,6 +1,6 @@
 """
 Mac menu bar app — click the mic icon to connect/disconnect.
-Requires: pip install rumps
+Requires: pip install rumps psutil
 """
 
 import socket
@@ -19,7 +19,6 @@ CHUNK = 480
 
 
 def get_local_ips():
-    """Get all local IPv4 addresses with interface names."""
     import psutil
     ips = []
     for name, addrs in psutil.net_if_addrs().items():
@@ -63,7 +62,7 @@ class MicPassthroughApp(rumps.App):
         self.streaming = False
         self.stream = None
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.discovered = {}  # ip -> name
+        self.discovered = {}
         self.local_ips = get_local_ips()
         self.selected_local_ip = self.local_ips[0][1] if self.local_ips else None
 
@@ -76,8 +75,7 @@ class MicPassthroughApp(rumps.App):
             rumps.MenuItem("Discovered:", callback=None),
             rumps.MenuItem("  Scanning…", callback=None),
             None,
-            rumps.MenuItem("Set PC IP Address…", callback=self.set_ip),
-            rumps.MenuItem("Connect", callback=self.toggle_connect),
+            rumps.MenuItem("Disconnect", callback=self.disconnect),
             rumps.MenuItem("Reconnect BT Device", callback=self.reconnect_bt_menu),
             None,
             rumps.MenuItem("Quit", callback=self.quit_app),
@@ -96,13 +94,11 @@ class MicPassthroughApp(rumps.App):
     def _make_local_selector(self, iface, ip):
         def select(_):
             self.selected_local_ip = ip
-            # update checkmarks
             for n, a in self.local_ips:
                 check = "✓" if a == ip else " "
                 for title in list(self.menu.keys()):
                     if f"- {a}" in title:
                         self.menu[title].title = f"{check} {n} - {a}"
-            # restart discovery with new IP
             self.discovery.stop()
             self._start_discovery()
         return select
@@ -133,33 +129,15 @@ class MicPassthroughApp(rumps.App):
 
     def _make_pc_selector(self, ip):
         def select(_):
+            if self.streaming:
+                self._stop()
             self.pc_ip = ip
-            self.menu["Not connected"].title = f"PC: {ip}"
+            self._start()
         return select
 
-    @rumps.clicked("Set PC IP Address…")
-    def set_ip(self, _):
-        response = rumps.Window(
-            title="Mic Passthrough",
-            message="Enter your PC's IP address:",
-            default_text=self.pc_ip or "",
-            ok="Save",
-            cancel="Cancel",
-            dimensions=(260, 24),
-        ).run()
-        if response.clicked and response.text.strip():
-            self.pc_ip = response.text.strip()
-            self.menu["Not connected"].title = f"PC: {self.pc_ip}"
-
-    @rumps.clicked("Connect")
-    def toggle_connect(self, sender):
-        if self.streaming:
-            self._stop()
-        else:
-            if not self.pc_ip:
-                self.set_ip(None)
-            if self.pc_ip:
-                self._start()
+    @rumps.clicked("Disconnect")
+    def disconnect(self, _):
+        self._stop()
 
     @rumps.clicked("Reconnect BT Device")
     def reconnect_bt_menu(self, _):
@@ -193,7 +171,6 @@ class MicPassthroughApp(rumps.App):
 
             self.streaming = True
             self.title = "🎙●"
-            self.menu["Connect"].title = "Disconnect"
             self.menu["Not connected"].title = f"Streaming → {self.pc_ip}"
 
         threading.Thread(target=do_start, daemon=True).start()
@@ -205,8 +182,7 @@ class MicPassthroughApp(rumps.App):
             self.stream.close()
             self.stream = None
         self.title = "🎙"
-        self.menu["Connect"].title = "Connect"
-        self.menu["Not connected"].title = f"PC: {self.pc_ip}"
+        self.menu["Not connected"].title = "Not connected"
 
     def quit_app(self, _):
         self._stop()
