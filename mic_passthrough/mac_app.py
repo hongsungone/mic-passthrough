@@ -1,6 +1,6 @@
 """
 Mac menu bar app — click the mic icon to connect/disconnect.
-Requires: pip install rumps zeroconf
+Requires: pip install rumps
 """
 
 import socket
@@ -16,6 +16,17 @@ PORT = 9876
 SAMPLE_RATE = 44100
 CHANNELS = 1
 CHUNK = 480
+
+
+def get_local_ips():
+    """Get all local IPv4 addresses with interface names."""
+    import psutil
+    ips = []
+    for name, addrs in psutil.net_if_addrs().items():
+        for addr in addrs:
+            if addr.family == socket.AF_INET and not addr.address.startswith("127."):
+                ips.append((name, addr.address))
+    return ips
 
 
 def get_active_bt_audio_mac():
@@ -45,7 +56,6 @@ def reconnect_bt_device(mac):
     time.sleep(3)
 
 
-
 class MicPassthroughApp(rumps.App):
     def __init__(self):
         super().__init__("🎙", quit_button=None)
@@ -54,9 +64,14 @@ class MicPassthroughApp(rumps.App):
         self.stream = None
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.discovered = {}  # ip -> name
+        self.local_ips = get_local_ips()
+        self.selected_local_ip = self.local_ips[0][1] if self.local_ips else None
 
         self.menu = [
             rumps.MenuItem("Not connected", callback=None),
+            None,
+            rumps.MenuItem("Broadcast from:", callback=None),
+            *self._build_local_ip_items(),
             None,
             rumps.MenuItem("Discovered:", callback=None),
             rumps.MenuItem("  Scanning…", callback=None),
@@ -68,17 +83,40 @@ class MicPassthroughApp(rumps.App):
             rumps.MenuItem("Quit", callback=self.quit_app),
         ]
 
-        # start UDP broadcast discovery
-        self.discovery = PCDiscovery(self._on_discovery_update)
+        self._start_discovery()
+
+    def _build_local_ip_items(self):
+        items = []
+        for iface, ip in self.local_ips:
+            check = "✓" if ip == self.selected_local_ip else "  "
+            title = f"{check} {iface} ({ip})"
+            items.append(rumps.MenuItem(title, callback=self._make_local_selector(iface, ip)))
+        return items
+
+    def _make_local_selector(self, iface, ip):
+        def select(_):
+            self.selected_local_ip = ip
+            # update checkmarks
+            for i, (n, a) in enumerate(self.local_ips):
+                check = "✓" if a == ip else "  "
+                old_title_check = "✓" if a == self.selected_local_ip else "  "
+                for title in list(self.menu.keys()):
+                    if f"({a})" in title:
+                        self.menu[title].title = f"{check} {n} ({a})"
+            # restart discovery with new IP
+            self.discovery.stop()
+            self._start_discovery()
+        return select
+
+    def _start_discovery(self):
+        self.discovery = PCDiscovery(self._on_discovery_update, self.selected_local_ip)
         self.discovery.start()
 
     def _on_discovery_update(self, peers):
-        # peers: {ip -> (name, last_seen)}
         self.discovered = {ip: name for ip, (name, _) in peers.items()}
         self._rebuild_discovered_menu()
 
     def _rebuild_discovered_menu(self):
-        # remove old discovered items
         for key in list(self.menu.keys()):
             if key.startswith("  ") and key != "  Scanning…":
                 del self.menu[key]
@@ -91,10 +129,10 @@ class MicPassthroughApp(rumps.App):
                 del self.menu["  Scanning…"]
             for ip, name in self.discovered.items():
                 title = f"  {name} ({ip})"
-                item = rumps.MenuItem(title, callback=self._make_selector(ip))
+                item = rumps.MenuItem(title, callback=self._make_pc_selector(ip))
                 self.menu.insert_after("Discovered:", item)
 
-    def _make_selector(self, ip):
+    def _make_pc_selector(self, ip):
         def select(_):
             self.pc_ip = ip
             self.menu["Not connected"].title = f"PC: {ip}"
@@ -138,7 +176,7 @@ class MicPassthroughApp(rumps.App):
         def do_start():
             self.menu["Not connected"].title = "Connecting…"
 
-            def callback(indata, frames, time, status):
+            def callback(indata, frames, t, status):
                 if self.streaming and self.pc_ip:
                     pcm = (indata[:, 0] * 32767).astype(np.int16)
                     self.sock.sendto(pcm.tobytes(), (self.pc_ip, PORT))
@@ -149,7 +187,6 @@ class MicPassthroughApp(rumps.App):
             )
             self.stream.start()
 
-            # wait for BT profile switch then reconnect
             time.sleep(1)
             mac, name = get_active_bt_audio_mac()
             if mac:

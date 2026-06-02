@@ -11,6 +11,7 @@ dependencies = [
     "sounddevice",
     "numpy",
     "rumps; sys_platform == 'darwin'",
+    "psutil; sys_platform == 'darwin'",
     "pystray; sys_platform == 'win32'",
     "pillow; sys_platform == 'win32'",
     "psutil; sys_platform == 'win32'",

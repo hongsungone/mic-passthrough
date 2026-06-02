@@ -29,6 +29,18 @@ class PCResponder:
     def stop(self):
         self.running = False
 
+    def _best_ip_for(self, requester_ip):
+        """Pick the local IP on the same subnet as the requester."""
+        import psutil
+        requester_prefix = '.'.join(requester_ip.split('.')[:3])
+        for addrs in psutil.net_if_addrs().values():
+            for addr in addrs:
+                if addr.family == socket.AF_INET:
+                    prefix = '.'.join(addr.address.split('.')[:3])
+                    if prefix == requester_prefix:
+                        return addr.address
+        return self.get_ip_fn()  # fallback to selected IP
+
     def _loop(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -39,7 +51,8 @@ class PCResponder:
             try:
                 data, addr = sock.recvfrom(256)
                 if data == PING_MSG:
-                    ip = self.get_ip_fn()
+                    requester_ip = addr[0]
+                    ip = self._best_ip_for(requester_ip)
                     msg = f"{PONG_PREFIX}{hostname}|{ip}".encode()
                     sock.sendto(msg, addr)
             except socket.timeout:
@@ -50,10 +63,11 @@ class PCResponder:
 
 
 class PCDiscovery:
-    """Mac side — broadcasts pings and collects PC responses."""
+    """Mac side — broadcasts pings from selected IP and collects PC responses."""
 
-    def __init__(self, on_update):
+    def __init__(self, on_update, source_ip=None):
         self.on_update = on_update
+        self.source_ip = source_ip  # broadcast from this IP
         self.peers = {}  # ip -> (name, last_seen)
         self.running = False
 
@@ -69,7 +83,8 @@ class PCDiscovery:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind(('', DISCOVERY_PORT))
+        bind_ip = self.source_ip or ''
+        sock.bind((bind_ip, DISCOVERY_PORT))
         sock.settimeout(1)
 
         while self.running:
