@@ -17,18 +17,29 @@ CHANNELS = 1
 CHUNK = 480
 
 
-def get_airpods_mac():
+def get_active_bt_audio_mac():
+    """Find the MAC of the Bluetooth device currently used as audio input."""
     try:
+        # get current default input device name
+        default_input = sd.query_devices(kind='input')['name']
+
+        # get all paired BT devices
         result = subprocess.run(['blueutil', '--paired'], capture_output=True, text=True)
         for line in result.stdout.splitlines():
-            if 'airpods' in line.lower():
+            if 'connected' not in line:
+                continue
+            # extract name from line
+            name_match = None
+            if 'name:' in line:
+                name_match = line.split('name:')[-1].strip().strip('"').split('"')[0]
+            if name_match and name_match.lower() in default_input.lower():
                 for part in line.split(','):
                     part = part.strip()
                     if part.startswith('address:'):
-                        return part.replace('address:', '').strip()
-    except FileNotFoundError:
+                        return part.replace('address:', '').strip(), name_match
+    except Exception:
         pass
-    return None
+    return None, None
 
 
 def reconnect_airpods(mac):
@@ -84,7 +95,7 @@ class MicPassthroughApp(rumps.App):
     def reconnect_airpods_menu(self, _):
         def do_reconnect():
             self.menu["Reconnect AirPods"].title = "Reconnecting…"
-            mac = get_airpods_mac()
+            mac, name = get_active_bt_audio_mac()
             if mac:
                 reconnect_airpods(mac)
             self.menu["Reconnect AirPods"].title = "Reconnect AirPods"
@@ -108,7 +119,7 @@ class MicPassthroughApp(rumps.App):
 
             # wait for profile switch to settle then reconnect AirPods
             time.sleep(1)
-            mac = get_airpods_mac()
+            mac, name = get_active_bt_audio_mac()
             if mac:
                 reconnect_airpods(mac)
 
