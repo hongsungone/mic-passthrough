@@ -19,12 +19,13 @@ CHUNK = 480
 
 def get_airpods_mac():
     try:
-        result = subprocess.run(['blueutil', '--connected'], capture_output=True, text=True)
+        result = subprocess.run(['blueutil', '--paired'], capture_output=True, text=True)
         for line in result.stdout.splitlines():
             if 'airpods' in line.lower():
-                for part in line.split():
-                    if '-' in part and len(part) == 17:
-                        return part
+                for part in line.split(','):
+                    part = part.strip()
+                    if part.startswith('address:'):
+                        return part.replace('address:', '').strip()
     except FileNotFoundError:
         pass
     return None
