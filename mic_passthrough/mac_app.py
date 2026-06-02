@@ -32,9 +32,9 @@ def get_airpods_mac():
 
 def reconnect_airpods(mac):
     subprocess.run(['blueutil', '--disconnect', mac], capture_output=True)
-    time.sleep(1.5)
+    time.sleep(3)  # wait longer for full BT disconnect
     subprocess.run(['blueutil', '--connect', mac], capture_output=True)
-    time.sleep(2)
+    time.sleep(3)  # wait for full BT reconnect
 
 
 class MicPassthroughApp(rumps.App):
