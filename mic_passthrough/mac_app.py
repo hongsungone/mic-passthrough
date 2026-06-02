@@ -10,13 +10,12 @@ import time
 import rumps
 import numpy as np
 import sounddevice as sd
-from zeroconf import ServiceBrowser, Zeroconf
+from mic_passthrough.discovery import PCDiscovery
 
 PORT = 9876
 SAMPLE_RATE = 44100
 CHANNELS = 1
 CHUNK = 480
-MDNS_TYPE = "_mic-passthrough._udp.local."
 
 
 def get_active_bt_audio_mac():
@@ -46,30 +45,6 @@ def reconnect_bt_device(mac):
     time.sleep(3)
 
 
-class DiscoveryListener:
-    def __init__(self, app):
-        self.app = app
-
-    def add_service(self, zc, type_, name):
-        info = zc.get_service_info(type_, name)
-        if not info:
-            return
-        label = info.properties.get(b'label', b'').decode()
-        ip = socket.inet_ntoa(info.addresses[0])
-        key = f"{label}|{ip}"
-        self.app.discovered[key] = (label, ip)
-        self.app._rebuild_discovered_menu()
-
-    def remove_service(self, zc, type_, name):
-        # remove by matching name
-        to_remove = [k for k in self.app.discovered if name.split('.')[0] in k]
-        for k in to_remove:
-            del self.app.discovered[k]
-        self.app._rebuild_discovered_menu()
-
-    def update_service(self, zc, type_, name):
-        self.add_service(zc, type_, name)
-
 
 class MicPassthroughApp(rumps.App):
     def __init__(self):
@@ -78,7 +53,7 @@ class MicPassthroughApp(rumps.App):
         self.streaming = False
         self.stream = None
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.discovered = {}  # key -> (label, ip)
+        self.discovered = {}  # ip -> name
 
         self.menu = [
             rumps.MenuItem("Not connected", callback=None),
@@ -93,9 +68,14 @@ class MicPassthroughApp(rumps.App):
             rumps.MenuItem("Quit", callback=self.quit_app),
         ]
 
-        # start mDNS discovery
-        self.zeroconf = Zeroconf()
-        self.browser = ServiceBrowser(self.zeroconf, MDNS_TYPE, DiscoveryListener(self))
+        # start UDP broadcast discovery
+        self.discovery = PCDiscovery(self._on_discovery_update)
+        self.discovery.start()
+
+    def _on_discovery_update(self, peers):
+        # peers: {ip -> (name, last_seen)}
+        self.discovered = {ip: name for ip, (name, _) in peers.items()}
+        self._rebuild_discovered_menu()
 
     def _rebuild_discovered_menu(self):
         # remove old discovered items
@@ -107,11 +87,10 @@ class MicPassthroughApp(rumps.App):
             if "  Scanning…" not in self.menu:
                 self.menu.insert_after("Discovered:", rumps.MenuItem("  Scanning…", callback=None))
         else:
-            # remove scanning placeholder
             if "  Scanning…" in self.menu:
                 del self.menu["  Scanning…"]
-            for key, (label, ip) in self.discovered.items():
-                title = f"  {label} ({ip})"
+            for ip, name in self.discovered.items():
+                title = f"  {name} ({ip})"
                 item = rumps.MenuItem(title, callback=self._make_selector(ip))
                 self.menu.insert_after("Discovered:", item)
 
@@ -195,7 +174,7 @@ class MicPassthroughApp(rumps.App):
 
     def quit_app(self, _):
         self._stop()
-        self.zeroconf.close()
+        self.discovery.stop()
         rumps.quit_application()
 
 
