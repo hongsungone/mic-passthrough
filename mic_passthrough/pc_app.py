@@ -19,6 +19,7 @@ SAMPLE_RATE = 48000
 CHANNELS = 1
 CHUNK = 480
 BUFFER_MAX = 6
+BUFFER_PREBUFFER = 3  # wait for this many packets before starting playback
 
 
 def get_local_ips():
