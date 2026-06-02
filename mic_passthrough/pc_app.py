@@ -112,8 +112,7 @@ class TrayApp:
         self.sock.setblocking(False)
         self.buf = []
 
-        # use device's max output channels (VB-Cable is stereo)
-        out_channels = sd.query_devices(self.device_index)['max_output_channels']
+        out_channels = 2  # stereo
 
         def audio_callback(outdata, frames, time, status):
             mono = self.buf.pop(0) if self.buf else np.zeros(CHUNK, dtype=np.float32)
@@ -170,7 +169,6 @@ class TrayApp:
         icon.stop()
 
     def run(self):
-        self._start()
         self.icon.run()
 
 
